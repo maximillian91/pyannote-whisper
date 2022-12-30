@@ -87,13 +87,6 @@ def write_vtt_with_spk(spk_sent, file: TextIO):
             flush=True,
         )
 
-# def write_to_vtt_with_spk(spk_sent, file):
-#     with open(file, 'w') as fp:
-#         for seg, spk, sentence in spk_sent:
-#             line = f'{seg.start:.2f} {seg.end:.2f} {spk} {sentence}\n'
-#             fp.write(line)
-
-
 # def write_vtt_with_spk(transcript: Iterator[dict], file: TextIO):
 #     print("WEBVTT\n", file=file)
 #     for segment in transcript:
@@ -103,4 +96,13 @@ def write_vtt_with_spk(spk_sent, file: TextIO):
 #           file=file,
 #           flush=True,
 #         )
+
+
+# def write_to_vtt_with_spk(spk_sent, file):
+#     with open(file, 'w') as fp:
+#         for seg, spk, sentence in spk_sent:
+#             line = f'{seg.start:.2f} {seg.end:.2f} {spk} {sentence}\n'
+#             fp.write(line)
+
+
 
