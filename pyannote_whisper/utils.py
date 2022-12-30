@@ -2,11 +2,11 @@ from pyannote.core import Segment, Annotation, Timeline
 from whisper.utils import optional_int, optional_float, str2bool, write_txt, write_vtt, write_srt, format_timestamp
 from typing import Iterator, TextIO
 
-def get_text_with_timestamp(transcribe_res):
+def get_text_with_timestamp(transcribe_res, duration):
     timestamp_texts = []
     for item in transcribe_res['segments']:
         start = item['start']
-        end = item['end']
+        end = min(duration, item['end'])
         text = item['text']
         timestamp_texts.append((Segment(start, end), text))
     return timestamp_texts
@@ -54,8 +54,8 @@ def merge_sentence(spk_text):
     return merged_spk_text
 
 
-def diarize_text(transcribe_res, diarization_result):
-    timestamp_texts = get_text_with_timestamp(transcribe_res)
+def diarize_text(transcribe_res, diarization_result, duration):
+    timestamp_texts = get_text_with_timestamp(transcribe_res, duration)
     spk_text = add_speaker_info_to_text(timestamp_texts, diarization_result)
     res_processed = merge_sentence(spk_text)
     return res_processed

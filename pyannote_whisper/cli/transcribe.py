@@ -3,6 +3,9 @@ import os
 import warnings
 import time
 
+import wave
+import contextlib
+
 import numpy as np
 import torch
 
@@ -106,6 +109,11 @@ def cli():
 
 
     for audio_path in args.pop("audio"):
+        with contextlib.closing(wave.open(audio_path,'r')) as f:
+            frames = f.getnframes()
+            rate = f.getframerate()
+            duration = frames / float(rate)
+        
         t0 = time.time()
         result = transcribe(model, audio_path, temperature=temperature, **args)
         t1 = time.time()
@@ -141,7 +149,7 @@ def cli():
             vtt_filepath = os.path.join(output_dir, audio_basename + "_spk.vtt")
 
             t0 = time.time()
-            res = diarize_text(result, diarization_result)
+            res = diarize_text(result, diarization_result, duration)
             t1 = time.time()
             print("{:.4f}s".format(t1-t0), "spent on", "res = diarize_text(result, diarization_result)")
 
