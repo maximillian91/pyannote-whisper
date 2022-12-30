@@ -1,6 +1,7 @@
 import argparse
 import os
 import warnings
+import time
 
 import numpy as np
 import torch
@@ -9,7 +10,7 @@ from whisper.tokenizer import LANGUAGES, TO_LANGUAGE_CODE
 from whisper.utils import optional_int, optional_float, str2bool, write_txt, write_vtt, write_srt
 from whisper.transcribe import transcribe
 
-from pyannote_whisper.utils import diarize_text, write_to_txt
+from pyannote_whisper.utils import diarize_text, write_to_txt, write_vtt_with_spk
 
 def cli():
     from whisper import available_models
@@ -93,11 +94,22 @@ def cli():
     diarization = args.pop("diarization")
     if diarization:
         from pyannote.audio import Pipeline
-        pipeline = Pipeline.from_pretrained("pyannote/speaker-diarization",
-                                            use_auth_token="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")
+        # My HuggingFace Token
+        use_auth_token = "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"
+        # # Original authors HuggingFace Token
+        # use_auth_token = "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"
+
+        pipeline = Pipeline.from_pretrained(
+            "pyannote/speaker-diarization",
+            use_auth_token=use_auth_token
+        )
+
 
     for audio_path in args.pop("audio"):
+        t0 = time.time()
         result = transcribe(model, audio_path, temperature=temperature, **args)
+        t1 = time.time()
+        print("{:.4f}s".format(t1-t0), "spent on", "result = transcribe(model, audio_path, temperature=temperature, **args)")
 
         audio_basename = os.path.basename(audio_path)
 
@@ -114,10 +126,35 @@ def cli():
             write_srt(result["segments"], file=srt)
 
         if diarization:
-            diarization_result = pipeline(audio_path)
-            filepath = os.path.join(output_dir, audio_basename + "_spk.txt")
+            if audio_path[-3:] != 'wav':
+                wav_filepath = os.path.join(output_dir, audio_basename + ".wav")
+                subprocess.call(['ffmpeg', '-i', path, wav_filepath, '-y'])
+            else:
+                wav_filepath = audio_path
+
+            t0 = time.time()
+            diarization_result = pipeline(wav_filepath)
+            t1 = time.time()
+            print("{:.4f}s".format(t1-t0), "spent on", "diarization_result = pipeline(wav_filepath)")
+            
+            txt_filepath = os.path.join(output_dir, audio_basename + "_spk.txt")
+            vtt_filepath = os.path.join(output_dir, audio_basename + "_spk.vtt")
+
+            t0 = time.time()
             res = diarize_text(result, diarization_result)
-            write_to_txt(res, filepath)
+            t1 = time.time()
+            print("{:.4f}s".format(t1-t0), "spent on", "res = diarize_text(result, diarization_result)")
+
+            t0 = time.time()
+            write_to_txt(res, txt_filepath)
+            t1 = time.time()
+            print("{:.4f}s".format(t1-t0), "spent on", "write_to_txt(res, txt_filepath)")
+
+            t0 = time.time()
+            with open(vtt_filepath, "w", encoding="utf-8") as vtt:
+                write_vtt_with_spk(res, file=vtt)
+            t1 = time.time()
+            print("{:.4f}s".format(t1-t0), "spent on", "write_vtt_with_spk(res, file=vtt)")
 
 
 if __name__ == '__main__':

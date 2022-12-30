@@ -1,5 +1,6 @@
 from pyannote.core import Segment, Annotation, Timeline
-
+from whisper.utils import optional_int, optional_float, str2bool, write_txt, write_vtt, write_srt, format_timestamp
+from typing import Iterator, TextIO
 
 def get_text_with_timestamp(transcribe_res):
     timestamp_texts = []
@@ -65,3 +66,41 @@ def write_to_txt(spk_sent, file):
         for seg, spk, sentence in spk_sent:
             line = f'{seg.start:.2f} {seg.end:.2f} {spk} {sentence}\n'
             fp.write(line)
+
+
+def write_txt_with_spk(spk_sent, file: TextIO):
+    print("WEBVTT\n", file=file)
+    for seg, spk, sentence in spk_sent:
+        print(
+            f'{seg.start:.2f} {seg.end:.2f} {spk} {sentence}\n',
+            file=file,
+            flush=True,
+        )
+
+def write_vtt_with_spk(spk_sent, file: TextIO):
+    print("WEBVTT\n", file=file)
+    for seg, spk, sentence in spk_sent:
+        print(
+            f"{format_timestamp(seg.start)} --> {format_timestamp(seg.end)}\n"
+            f"<v {spk}>{sentence.strip().replace('-->', '->')}</v>\n",
+            file=file,
+            flush=True,
+        )
+
+# def write_to_vtt_with_spk(spk_sent, file):
+#     with open(file, 'w') as fp:
+#         for seg, spk, sentence in spk_sent:
+#             line = f'{seg.start:.2f} {seg.end:.2f} {spk} {sentence}\n'
+#             fp.write(line)
+
+
+# def write_vtt_with_spk(transcript: Iterator[dict], file: TextIO):
+#     print("WEBVTT\n", file=file)
+#     for segment in transcript:
+#         print(
+#           f"{format_timestamp(segment['start'])} --> {format_timestamp(segment['end'])}\n"
+#           f"<v {segment['speaker']}>{segment['text'].strip().replace('-->', '->')}</v>\n",
+#           file=file,
+#           flush=True,
+#         )
+
