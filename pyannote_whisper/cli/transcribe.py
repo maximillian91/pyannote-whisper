@@ -5,6 +5,10 @@ import time
 
 import wave
 import contextlib
+import webvtt
+from datetime import datetime
+import time
+import re
 
 import numpy as np
 import torch
@@ -14,6 +18,11 @@ from whisper.utils import optional_int, optional_float, str2bool, write_txt, wri
 from whisper.transcribe import transcribe
 
 from pyannote_whisper.utils import diarize_text, write_to_txt, write_vtt_with_spk
+
+
+timestamp_regex = r'([0-9]{2})\:([0-9]{2})\:([0-9]{2})\.([0-9]{3})'
+map_to_sec = np.array([3600, 60, 1, 0.001])
+timestamp_to_sec = lambda x: np.dot(map_to_sec, np.array(list(re.search(timestamp_regex, x).groups())).astype(int))
 
 def cli():
     from whisper import available_models
@@ -66,6 +75,11 @@ def cli():
                         help="number of threads used by torch for CPU inference; supercedes MKL_NUM_THREADS/OMP_NUM_THREADS")
     parser.add_argument("--diarization", type=str2bool, default=True,
                         help="whether to perform speaker diarization; True by default")
+    parser.add_argument("--num_speakers", type=optional_int, default=None,
+                        help="number of speakers used by pyannote diarization; default is None, where the number will be determined automatically.")
+    parser.add_argument("--reuse_transcript", type=str2bool, default=False,
+                        help="whether to reuse transcription files in --transcript_dir; False by default")
+    parser.add_argument("--transcript_dir", "-v", type=str, default=".", help="directory to find .vtt files")
 
     args = parser.parse_args().__dict__
     model_name: str = args.pop("model")
@@ -102,36 +116,59 @@ def cli():
         # # Original authors HuggingFace Token
         # use_auth_token = "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"
 
+        num_speakers = args.pop("num_speakers")
+
         pipeline = Pipeline.from_pretrained(
             "pyannote/speaker-diarization",
             use_auth_token=use_auth_token
         )
 
+    reuse_transcript = args.pop("reuse_transcript")
+    transcript_dir = args.pop("transcript_dir")
+    time_convert = lambda x: time.mktime(datetime.strptime(x, "%H:%M:%S.%f").timetuple())
+    # vtt_files = [l for l in os.path.listdir(transcript_dir) if l[-4:] == ".vtt"] 
 
     for audio_path in args.pop("audio"):
+        audio_basename = os.path.basename(audio_path)
+
         with contextlib.closing(wave.open(audio_path,'r')) as f:
             frames = f.getnframes()
             rate = f.getframerate()
             duration = frames / float(rate)
         
-        t0 = time.time()
-        result = transcribe(model, audio_path, temperature=temperature, **args)
-        t1 = time.time()
-        print("{:.4f}s".format(t1-t0), "spent on", "result = transcribe(model, audio_path, temperature=temperature, **args)")
+        vtt_filepath = os.path.join(transcript_dir, audio_basename + ".vtt")
 
-        audio_basename = os.path.basename(audio_path)
+        if not (os.path.exists(vtt_filepath) and reuse_transcript):
+            t0 = time.time()
+            result = transcribe(model, audio_path, temperature=temperature, **args)
+            t1 = time.time()
+            print("{:.4f}s".format(t1-t0), "spent on", "result = transcribe(model, audio_path, temperature=temperature, **args)")
 
-        # save TXT
-        with open(os.path.join(output_dir, audio_basename + ".txt"), "w", encoding="utf-8") as txt:
-            write_txt(result["segments"], file=txt)
+            # save TXT
+            with open(os.path.join(output_dir, audio_basename + ".txt"), "w", encoding="utf-8") as txt:
+                write_txt(result["segments"], file=txt)
 
-        # save VTT
-        with open(os.path.join(output_dir, audio_basename + ".vtt"), "w", encoding="utf-8") as vtt:
-            write_vtt(result["segments"], file=vtt)
+            # save VTT
+            with open(os.path.join(output_dir, audio_basename + ".vtt"), "w", encoding="utf-8") as vtt:
+                write_vtt(result["segments"], file=vtt)
 
-        # save SRT
-        with open(os.path.join(output_dir, audio_basename + ".srt"), "w", encoding="utf-8") as srt:
-            write_srt(result["segments"], file=srt)
+            # save SRT
+            with open(os.path.join(output_dir, audio_basename + ".srt"), "w", encoding="utf-8") as srt:
+                write_srt(result["segments"], file=srt)
+
+            transcribe_segments = result["segments"]
+        else:
+
+            transcribe_segment_list = webvtt.read(vtt_filepath)
+            
+            transcribe_segments = [
+                {
+                    "start": timestamp_to_sec(item.start),
+                    "end": timestamp_to_sec(item.end),
+                    "text": item.text
+                }
+                for item in transcribe_segment_list
+            ]
 
         if diarization:
             if audio_path[-3:] != 'wav':
@@ -141,25 +178,25 @@ def cli():
                 wav_filepath = audio_path
 
             t0 = time.time()
-            diarization_result = pipeline(wav_filepath)
+            diarization_result = pipeline(wav_filepath, num_speakers=num_speakers)
             t1 = time.time()
             print("{:.4f}s".format(t1-t0), "spent on", "diarization_result = pipeline(wav_filepath)")
             
-            txt_filepath = os.path.join(output_dir, audio_basename + "_spk.txt")
-            vtt_filepath = os.path.join(output_dir, audio_basename + "_spk.vtt")
+            spk_txt_filepath = os.path.join(output_dir, audio_basename + "_spk.txt")
+            spk_vtt_filepath = os.path.join(output_dir, audio_basename + "_spk.vtt")
 
             t0 = time.time()
-            res = diarize_text(result, diarization_result, duration)
+            res = diarize_text(transcribe_segments, diarization_result, duration)
             t1 = time.time()
-            print("{:.4f}s".format(t1-t0), "spent on", "res = diarize_text(result, diarization_result)")
+            print("{:.4f}s".format(t1-t0), "spent on", "res = diarize_text(transcribe_segments, diarization_result)")
 
             t0 = time.time()
-            write_to_txt(res, txt_filepath)
+            write_to_txt(res, spk_txt_filepath)
             t1 = time.time()
             print("{:.4f}s".format(t1-t0), "spent on", "write_to_txt(res, txt_filepath)")
 
             t0 = time.time()
-            with open(vtt_filepath, "w", encoding="utf-8") as vtt:
+            with open(spk_vtt_filepath, "w", encoding="utf-8") as vtt:
                 write_vtt_with_spk(res, file=vtt)
             t1 = time.time()
             print("{:.4f}s".format(t1-t0), "spent on", "write_vtt_with_spk(res, file=vtt)")
