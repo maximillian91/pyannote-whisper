@@ -9,6 +9,7 @@ import webvtt
 from datetime import datetime
 import time
 import re
+import subprocess
 
 import numpy as np
 import torch
@@ -125,13 +126,18 @@ def cli():
 
     reuse_transcript = args.pop("reuse_transcript")
     transcript_dir = args.pop("transcript_dir")
-    time_convert = lambda x: time.mktime(datetime.strptime(x, "%H:%M:%S.%f").timetuple())
-    # vtt_files = [l for l in os.path.listdir(transcript_dir) if l[-4:] == ".vtt"] 
 
     for audio_path in args.pop("audio"):
         audio_basename = os.path.basename(audio_path)
+        audio_dirname = os.path.dirname(audio_path)
 
-        with contextlib.closing(wave.open(audio_path,'r')) as f:
+        if audio_path[-3:] != 'wav':
+            wav_filepath = os.path.join(audio_path + ".wav")
+            subprocess.call(['ffmpeg', '-i', audio_path, wav_filepath, '-y'])
+        else:
+            wav_filepath = audio_path
+
+        with contextlib.closing(wave.open(wav_filepath,'r')) as f:
             frames = f.getnframes()
             rate = f.getframerate()
             duration = frames / float(rate)
@@ -140,9 +146,9 @@ def cli():
 
         if not (os.path.exists(vtt_filepath) and reuse_transcript):
             t0 = time.time()
-            result = transcribe(model, audio_path, temperature=temperature, **args)
+            result = transcribe(model, wav_filepath, temperature=temperature, **args)
             t1 = time.time()
-            print("{:.4f}s".format(t1-t0), "spent on", "result = transcribe(model, audio_path, temperature=temperature, **args)")
+            print("{:.4f}s".format(t1-t0), "spent on", "result = transcribe(model, wav_filepath, temperature=temperature, **args)")
 
             # save TXT
             with open(os.path.join(output_dir, audio_basename + ".txt"), "w", encoding="utf-8") as txt:
@@ -171,11 +177,6 @@ def cli():
             ]
 
         if diarization:
-            if audio_path[-3:] != 'wav':
-                wav_filepath = os.path.join(output_dir, audio_basename + ".wav")
-                subprocess.call(['ffmpeg', '-i', path, wav_filepath, '-y'])
-            else:
-                wav_filepath = audio_path
 
             t0 = time.time()
             diarization_result = pipeline(wav_filepath, num_speakers=num_speakers)
